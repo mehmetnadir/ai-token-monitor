@@ -3,12 +3,13 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { AllStats } from "../lib/types";
 
-export type StatsProvider = "claude" | "codex" | "opencode" | "kimi" | "glm" | "gjc" | "grok" | "kiro" | "omo" | "pi";
+export type StatsProvider = "claude" | "codex" | "opencode" | "gemini" | "kimi" | "glm" | "gjc" | "grok" | "kiro" | "omo" | "pi";
 
 const STATS_COMMANDS: Record<StatsProvider, string> = {
   claude: "get_all_stats",
   codex: "get_codex_stats",
   opencode: "get_opencode_stats",
+  gemini: "get_gemini_stats",
   kimi: "get_kimi_stats",
   glm: "get_glm_stats",
   gjc: "get_gjc_stats",

@@ -7,6 +7,7 @@ type SourceKey =
   | "include_claude"
   | "include_codex"
   | "include_opencode"
+  | "include_gemini"
   | "include_kimi"
   | "include_glm"
   | "include_gjc"
@@ -26,6 +27,7 @@ export function SourceSelector() {
   const t = useI18n();
   const [codexAvailable, setCodexAvailable] = useState(false);
   const [opencodeAvailable, setOpencodeAvailable] = useState(false);
+  const [geminiAvailable, setGeminiAvailable] = useState(false);
   const [kimiAvailable, setKimiAvailable] = useState(false);
   const [glmAvailable, setGlmAvailable] = useState(false);
   const [gjcAvailable, setGjcAvailable] = useState(false);
@@ -41,6 +43,7 @@ export function SourceSelector() {
     Promise.all([
       invoke<boolean>("is_codex_available").catch(() => false),
       invoke<boolean>("is_opencode_available").catch(() => false),
+      invoke<boolean>("is_gemini_available").catch(() => false),
       invoke<boolean>("is_kimi_available").catch(() => false),
       invoke<boolean>("is_glm_available").catch(() => false),
       invoke<boolean>("is_gjc_available").catch(() => false),
@@ -48,9 +51,10 @@ export function SourceSelector() {
       invoke<boolean>("is_kiro_available").catch(() => false),
       invoke<boolean>("is_omo_available").catch(() => false),
       invoke<boolean>("is_pi_available").catch(() => false),
-    ]).then(([codex, opencode, kimi, glm, gjc, grok, kiro, omo, pi]) => {
+    ]).then(([codex, opencode, gemini, kimi, glm, gjc, grok, kiro, omo, pi]) => {
       setCodexAvailable(codex);
       setOpencodeAvailable(opencode);
+      setGeminiAvailable(gemini);
       setKimiAvailable(kimi);
       setGlmAvailable(glm);
       setGjcAvailable(gjc);
@@ -72,6 +76,7 @@ export function SourceSelector() {
     const patch: Partial<typeof prefs> = {};
     if (prefs.include_codex && !codexAvailable) patch.include_codex = false;
     if (prefs.include_opencode && !opencodeAvailable) patch.include_opencode = false;
+    if (prefs.include_gemini && !geminiAvailable) patch.include_gemini = false;
     if (prefs.include_kimi && !kimiAvailable) patch.include_kimi = false;
     if (prefs.include_glm && !glmAvailable) patch.include_glm = false;
     if (prefs.include_gjc && !gjcAvailable) patch.include_gjc = false;
@@ -80,7 +85,7 @@ export function SourceSelector() {
     if (prefs.include_omo && !omoAvailable) patch.include_omo = false;
     if (prefs.include_pi && !piAvailable) patch.include_pi = false;
     if (Object.keys(patch).length > 0) updatePrefs(patch);
-  }, [availabilityLoaded, codexAvailable, opencodeAvailable, kimiAvailable, glmAvailable, gjcAvailable, grokAvailable, kiroAvailable, omoAvailable, piAvailable, prefs.include_codex, prefs.include_opencode, prefs.include_kimi, prefs.include_glm, prefs.include_gjc, prefs.include_grok, prefs.include_kiro, prefs.include_omo, prefs.include_pi, updatePrefs]);
+  }, [availabilityLoaded, codexAvailable, opencodeAvailable, geminiAvailable, kimiAvailable, glmAvailable, gjcAvailable, grokAvailable, kiroAvailable, omoAvailable, piAvailable, prefs.include_codex, prefs.include_opencode, prefs.include_gemini, prefs.include_kimi, prefs.include_glm, prefs.include_gjc, prefs.include_grok, prefs.include_kiro, prefs.include_omo, prefs.include_pi, updatePrefs]);
 
   useEffect(() => {
     if (!open) return;
@@ -108,6 +113,7 @@ export function SourceSelector() {
     { key: "include_claude", label: t("sources.claude"), available: true },
     { key: "include_codex", label: t("sources.codex"), available: codexAvailable },
     { key: "include_opencode", label: t("sources.opencode"), available: opencodeAvailable },
+    { key: "include_gemini", label: t("sources.gemini"), available: geminiAvailable },
     { key: "include_kimi", label: t("sources.kimi"), available: kimiAvailable },
     { key: "include_glm", label: t("sources.glm"), available: glmAvailable },
     { key: "include_gjc", label: t("sources.gjc"), available: gjcAvailable },
@@ -115,7 +121,7 @@ export function SourceSelector() {
     { key: "include_kiro", label: t("sources.kiro"), available: kiroAvailable },
     { key: "include_omo", label: t("sources.omo"), available: omoAvailable },
     { key: "include_pi", label: t("sources.pi"), available: piAvailable },
-  ], [t, codexAvailable, opencodeAvailable, kimiAvailable, glmAvailable, gjcAvailable, grokAvailable, kiroAvailable, omoAvailable, piAvailable]);
+  ], [t, codexAvailable, opencodeAvailable, geminiAvailable, kimiAvailable, glmAvailable, gjcAvailable, grokAvailable, kiroAvailable, omoAvailable, piAvailable]);
 
   const visibleSources = sources.filter((s) => s.available);
   const totalCount = visibleSources.length;

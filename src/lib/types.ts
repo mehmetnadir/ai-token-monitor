@@ -105,6 +105,7 @@ export interface UserPreferences {
   include_claude: boolean;
   include_codex: boolean;
   include_opencode: boolean;
+  include_gemini: boolean;
   include_kimi: boolean;
   include_glm: boolean;
   include_gjc: boolean;
@@ -116,6 +117,7 @@ export interface UserPreferences {
   color_mode: "system" | "light" | "dark";
   language: "en" | "ko" | "ja" | "zh-CN" | "zh-TW" | "fr" | "es" | "de" | "tr" | "it";
   config_dirs: string[];
+  gemini_dirs: string[];
   codex_dirs: string[];
   gjc_dirs: string[];
   salary_enabled: boolean;

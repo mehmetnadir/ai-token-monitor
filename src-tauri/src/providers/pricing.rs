@@ -21,6 +21,7 @@ struct PricingConfig {
     glm: Option<ProviderConfig>,
     #[serde(default)]
     grok: Option<ProviderConfig>,
+    gemini: Option<ProviderConfig>,
 }
 
 #[derive(Deserialize)]
@@ -222,6 +223,13 @@ impl GrokPricing {
             }
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct GeminiPricing {
+    pub input: f64,
+    pub output: f64,
+    pub cache_read: f64,
 }
 
 // --- Loading ---
@@ -594,6 +602,30 @@ pub fn get_opencode_pricing(model: &str) -> OpenCodePricing {
     }
 }
 
+pub fn get_gemini_pricing(model: &str) -> GeminiPricing {
+    let cfg = config();
+    // Use dedicated gemini pricing if available
+    if let Some(ref g) = cfg.gemini {
+        let entry = resolved_pricing(g, "gemini", model);
+        return GeminiPricing {
+            input: entry.input,
+            output: entry.output,
+            cache_read: entry.cache_read,
+        };
+    }
+    // Fallback: use opencode pricing for gemini models
+    if let Some(ref oc) = cfg.opencode {
+        let entry = resolved_pricing(oc, "opencode", model);
+        return GeminiPricing {
+            input: entry.input,
+            output: entry.output,
+            cache_read: entry.cache_read,
+        };
+    }
+    // Last resort defaults (gemini-2.5-pro pricing)
+    GeminiPricing { input: 1.25, output: 10.0, cache_read: 0.315 }
+}
+
 // --- Frontend API (pricing table for tooltip display) ---
 
 #[derive(Serialize, Clone)]
@@ -619,6 +651,7 @@ pub struct PricingTable {
     pub glm: Vec<PricingRow>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub grok: Vec<PricingRow>,
+    pub gemini: Vec<PricingRow>,
 }
 
 fn format_price(val: f64) -> String {
@@ -670,6 +703,7 @@ pub fn get_pricing_table() -> PricingTable {
         // Grok quotes a discounted cached-input rate, like Codex — so the cache
         // column reads from cached_input rather than cache_read.
         grok: cfg.grok.as_ref().map(|g| deduplicated_rows(g, true)).unwrap_or_default(),
+        gemini: cfg.gemini.as_ref().map(|g| deduplicated_rows(g, false)).unwrap_or_default(),
     }
 }
 
@@ -1582,5 +1616,20 @@ mod tests {
         let p = get_codex_pricing("gpt-5.5-2026-04-23");
         assert!((p.input - 5.00).abs() < 0.001, "GPT-5.5 dated snapshot must match gpt-5.5, got input ${}", p.input);
         assert!((p.output - 30.00).abs() < 0.001);
+    }
+
+    #[test]
+    fn gemini_25_pro_pricing() {
+        let p = get_gemini_pricing("gemini-2.5-pro-preview");
+        assert!((p.input - 1.25).abs() < 0.001);
+        assert!((p.output - 10.0).abs() < 0.001);
+        assert!((p.cache_read - 0.315).abs() < 0.001);
+    }
+
+    #[test]
+    fn gemini_25_flash_pricing() {
+        let p = get_gemini_pricing("gemini-2.5-flash");
+        assert!((p.input - 0.15).abs() < 0.001);
+        assert!((p.output - 0.60).abs() < 0.001);
     }
 }
