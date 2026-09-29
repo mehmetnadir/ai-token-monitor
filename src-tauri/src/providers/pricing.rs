@@ -450,9 +450,9 @@ fn foreign_table(canonical: &str) -> Option<&'static str> {
     None
 }
 
-/// Families that have no pricing table of their own but are still recognizable
-/// model names. Only [`names_a_family`] consults these: a vendor prefix in front
-/// of `gemini-3` is still routing metadata even though no table prices Gemini.
+/// Families that are recognizable model names beyond the provider tables above.
+/// Only [`names_a_family`] consults these: a vendor prefix in front of
+/// `gemini-3` is routing metadata, so it is stripped to keep one model key.
 const OTHER_FAMILIES: &[&str] = &["gemini", "deepseek", "qwen", "llama", "mistral"];
 
 /// Price a non-Anthropic model found in a Claude-shaped log, expressed as
