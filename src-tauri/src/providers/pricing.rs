@@ -1708,6 +1708,16 @@ mod tests {
         assert!((p.output - 3.00).abs() < 0.001);
     }
 
+    // Gemma 4 is a valid Gemini CLI model but has no paid tier; it must not
+    // fall through to the 2.5 Pro default.
+    #[test]
+    fn gemma_is_free_not_billed_as_default() {
+        for model in ["gemma-4-31b-it", "gemma-4-26b-a4b-it"] {
+            let p = get_gemini_pricing(&normalize_model_id(model));
+            assert_eq!((p.input, p.output, p.cache_read), (0.0, 0.0, 0.0), "{model}");
+        }
+    }
+
     #[test]
     fn gemini_25_flash_lite_not_billed_as_flash() {
         // Normalized ids (dots folded to hyphens) must land on the same entry.

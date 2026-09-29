@@ -198,6 +198,7 @@
       { "match": "gemini-2.5-flash-lite", "label": "Gemini 2.5 Flash-Lite", "input": 0.10, "output": 0.40, "cache_read": 0.01, "cache_write": 0.0 },
       { "match": "gemini-2.5-flash", "label": "Gemini 2.5 Flash", "input": 0.30, "output": 2.50, "cache_read": 0.03, "cache_write": 0.0 },
       { "match": "gemini-2.0-flash", "label": "Gemini 2.0 Flash", "input": 0.10, "output": 0.40, "cache_read": 0.025, "cache_write": 0.0 },
+      { "match": "gemma", "label": "Gemma 4 (free tier only)", "input": 0.0, "output": 0.0, "cache_read": 0.0, "cache_write": 0.0 },
       { "match": "gemini", "label": "Gemini 2.5 Pro", "input": 1.25, "output": 10.00, "cache_read": 0.125, "cache_write": 0.0, "high_context": { "threshold_tokens": 200000, "input": 2.50, "output": 15.00, "cached_input": 0.25 } }
     ]
   }
