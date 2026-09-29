@@ -14,6 +14,7 @@ use crate::providers::glm::GlmProvider;
 use crate::providers::grok::{GrokCredits, GrokProvider};
 use crate::providers::kiro::{KiroBreakdown, KiroProvider};
 use crate::providers::kimi::KimiProvider;
+use crate::providers::gemini::GeminiProvider;
 use crate::providers::opencode::OpenCodeProvider;
 use crate::providers::omo::OmoProvider;
 use crate::providers::pi::PiProvider;
@@ -1028,6 +1029,34 @@ pub async fn enable_usage_tracking(app: tauri::AppHandle) -> Result<(), String> 
         let _ = app.emit("usage-updated", ());
     }
     Ok(())
+}
+
+#[tauri::command]
+pub async fn get_gemini_stats(app: tauri::AppHandle) -> Result<AllStats, String> {
+    let result = tauri::async_runtime::spawn_blocking(|| {
+        let prefs = get_preferences();
+        let provider = GeminiProvider::new(prefs.gemini_dirs);
+        if !provider.is_available() {
+            return Err("Gemini CLI stats not available".to_string());
+        }
+        provider.fetch_stats()
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+
+    match result {
+        Ok(mut stats) => {
+            crate::hydration::apply(&mut stats, "gemini");
+            crate::update_tray_title(&app);
+            Ok(stats)
+        }
+        Err(e) => Err(e),
+    }
+}
+
+#[tauri::command]
+pub fn is_gemini_available() -> bool {
+    GeminiProvider::new(get_preferences().gemini_dirs).is_available()
 }
 
 #[tauri::command]

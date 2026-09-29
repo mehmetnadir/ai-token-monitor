@@ -133,6 +133,8 @@ pub struct UserPreferences {
     #[serde(default)]
     pub include_opencode: bool,
     #[serde(default)]
+    pub include_gemini: bool,
+    #[serde(default)]
     pub include_kimi: bool,
     #[serde(default)]
     pub include_glm: bool,
@@ -150,6 +152,8 @@ pub struct UserPreferences {
     pub gjc_dirs: Vec<String>,
     #[serde(default = "default_codex_dirs")]
     pub codex_dirs: Vec<String>,
+    #[serde(default = "default_gemini_dirs")]
+    pub gemini_dirs: Vec<String>,
     #[serde(default)]
     pub salary_enabled: bool,
     #[serde(default)]
@@ -227,6 +231,10 @@ fn default_codex_dirs() -> Vec<String> {
 
 fn default_gjc_dirs() -> Vec<String> {
     vec!["~/.gjc".to_string()]
+}
+
+fn default_gemini_dirs() -> Vec<String> {
+    vec!["~/.gemini".to_string()]
 }
 
 fn default_true() -> bool {
@@ -307,6 +315,7 @@ impl Default for UserPreferences {
             include_claude: true,
             include_codex: false,
             include_opencode: false,
+            include_gemini: false,
             include_kimi: false,
             include_glm: false,
             include_gjc: false,
@@ -316,6 +325,7 @@ impl Default for UserPreferences {
             include_pi: false,
             gjc_dirs: default_gjc_dirs(),
             codex_dirs: default_codex_dirs(),
+            gemini_dirs: default_gemini_dirs(),
             salary_enabled: false,
             monthly_salary: None,
             usage_alerts_enabled: true,

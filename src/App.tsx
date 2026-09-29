@@ -75,6 +75,7 @@ function AppContent() {
     includeClaude: prefs.include_claude,
     includeCodex: prefs.include_codex,
     includeOpencode: prefs.include_opencode,
+    includeGemini: prefs.include_gemini,
     includeKimi: prefs.include_kimi,
     includeGlm: prefs.include_glm,
     includeGjc: prefs.include_gjc,
