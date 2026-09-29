@@ -594,8 +594,13 @@ pub async fn translate_reply(
 
     // Route to CLI if translation_provider is "cli"
     if prefs.translation_provider.as_deref() == Some("cli") {
-        let preferred = prefs.preferred_cli.as_deref().unwrap_or("gemini");
-        return crate::cli_translate::cli_translate_reply(&text, &original_message, preferred);
+        let preferred = prefs.preferred_cli.unwrap_or_else(|| "gemini".to_string());
+        // CLI calls block for up to the CLI timeout; keep them off the async runtime.
+        return tauri::async_runtime::spawn_blocking(move || {
+            crate::cli_translate::cli_translate_reply(&text, &original_message, &preferred)
+        })
+        .await
+        .map_err(|e| format!("CLI translation task failed: {}", e))?;
     }
 
     let model = prefs.ai_model.ok_or("No AI model selected")?;
@@ -625,13 +630,17 @@ pub async fn translate_text(
 
     // Route to CLI if translation_provider is "cli"
     if prefs.translation_provider.as_deref() == Some("cli") {
-        let preferred = prefs.preferred_cli.as_deref().unwrap_or("gemini");
-        return crate::cli_translate::cli_translate_text(
-            &text,
-            &target_language,
-            source_language.as_deref(),
-            preferred,
-        );
+        let preferred = prefs.preferred_cli.unwrap_or_else(|| "gemini".to_string());
+        return tauri::async_runtime::spawn_blocking(move || {
+            crate::cli_translate::cli_translate_text(
+                &text,
+                &target_language,
+                source_language.as_deref(),
+                &preferred,
+            )
+        })
+        .await
+        .map_err(|e| format!("CLI translation task failed: {}", e))?;
     }
 
     let model = prefs.ai_model.ok_or("No AI model selected")?;

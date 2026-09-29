@@ -1289,7 +1289,7 @@ function AiTranslationSection({
                   {t("settings.preferredCli")}
                 </div>
                 <select
-                  value={preferredCli ?? "gemini"}
+                  value={cliTools.some((tool) => tool.available && tool.name === preferredCli) ? preferredCli : cliTools.find((tool) => tool.available)?.name}
                   onChange={(e) => onPreferredCliChange(e.target.value || undefined)}
                   style={{
                     fontSize: 10,

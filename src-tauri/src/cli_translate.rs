@@ -1,8 +1,9 @@
 use serde::{Deserialize, Serialize};
-use std::io::Write;
-use std::process::{Command, Stdio};
-use std::thread;
-use std::time::Duration;
+use std::io::{Read, Write};
+use std::path::PathBuf;
+use std::process::{Child, Command, Stdio};
+use std::thread::{self, JoinHandle};
+use std::time::{Duration, Instant};
 
 const CLI_TIMEOUT_SECS: u64 = 60;
 const MAX_INPUT_CHARS: usize = 8000;
@@ -13,26 +14,47 @@ pub struct CliTool {
     pub available: bool,
 }
 
-fn check_cli_exists(name: &str) -> bool {
-    #[cfg(target_os = "windows")]
-    let result = Command::new("where").arg(name).output();
-    #[cfg(not(target_os = "windows"))]
-    let result = Command::new("which").arg(name).output();
+/// Candidate paths for the gemini CLI. GUI launches (Finder, autostart) get a
+/// minimal PATH, so the common install dirs are probed explicitly on top of it.
+fn gemini_cli_candidates() -> Vec<PathBuf> {
+    let bin_name = if cfg!(target_os = "windows") {
+        "gemini.cmd"
+    } else {
+        "gemini"
+    };
+    let mut dirs: Vec<PathBuf> = std::env::var_os("PATH")
+        .map(|path| std::env::split_paths(&path).collect())
+        .unwrap_or_default();
+    if let Some(home) = dirs::home_dir() {
+        dirs.push(home.join(".npm-global/bin"));
+        dirs.push(home.join(".local/bin"));
+    }
+    if !cfg!(target_os = "windows") {
+        dirs.push(PathBuf::from("/opt/homebrew/bin"));
+        dirs.push(PathBuf::from("/usr/local/bin"));
+    }
+    dirs.into_iter().map(|dir| dir.join(bin_name)).collect()
+}
 
-    result.map(|o| o.status.success()).unwrap_or(false)
+/// Resolve a CLI to an absolute path. `which`/`where` are not used because a
+/// GUI-launched app does not inherit the user's shell PATH.
+fn resolve_cli(name: &str) -> Option<PathBuf> {
+    let candidates = match name {
+        "claude" => crate::oauth_usage::claude_cli_candidates(),
+        "gemini" => gemini_cli_candidates(),
+        _ => return None,
+    };
+    candidates.into_iter().find(|path| path.is_file())
 }
 
 pub fn detect_available_cli_tools() -> Vec<CliTool> {
-    vec![
-        CliTool {
-            name: "gemini".to_string(),
-            available: check_cli_exists("gemini"),
-        },
-        CliTool {
-            name: "claude".to_string(),
-            available: check_cli_exists("claude"),
-        },
-    ]
+    ["gemini", "claude"]
+        .iter()
+        .map(|name| CliTool {
+            name: name.to_string(),
+            available: resolve_cli(name).is_some(),
+        })
+        .collect()
 }
 
 /// Sanitize untrusted input before passing to an LLM CLI.
@@ -93,6 +115,57 @@ fn sanitize_for_prompt(input: &str) -> String {
     out
 }
 
+fn drain<R: Read + Send + 'static>(pipe: Option<R>) -> JoinHandle<Vec<u8>> {
+    thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(mut pipe) = pipe {
+            let _ = pipe.read_to_end(&mut buf);
+        }
+        buf
+    })
+}
+
+fn kill(child: &mut Child) {
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+/// Build a command for a resolved CLI: isolated working directory, no browser
+/// pop-ups for login flows, and the CLI's own dir on PATH so npm shims
+/// (`#!/usr/bin/env node`) can find node from a GUI-launched app.
+fn cli_command(name: &str) -> Result<Command, String> {
+    let path = resolve_cli(name).ok_or_else(|| format!("{} CLI not found", name))?;
+    let mut cmd = Command::new(&path);
+
+    if let Some(bin_dir) = path.parent() {
+        let mut dirs = vec![bin_dir.to_path_buf()];
+        if let Some(existing) = std::env::var_os("PATH") {
+            dirs.extend(std::env::split_paths(&existing));
+        }
+        if let Ok(joined) = std::env::join_paths(dirs) {
+            cmd.env("PATH", joined);
+        }
+    }
+
+    // An empty scratch dir keeps project files (CLAUDE.md, GEMINI.md, settings)
+    // out of the prompt and gives any workspace-scoped tool nothing to read.
+    let work_dir = std::env::temp_dir().join("ai-token-monitor-translate");
+    if std::fs::create_dir_all(&work_dir).is_ok() {
+        cmd.current_dir(work_dir);
+    }
+
+    cmd.env("BROWSER", "true").env("NO_BROWSER", "true");
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    Ok(cmd)
+}
+
 /// Run a child process, piping `stdin_data` to stdin, and wait up to
 /// `CLI_TIMEOUT_SECS`. Kills the child on timeout and returns an error.
 fn run_with_timeout(mut cmd: Command, stdin_data: &str) -> Result<String, String> {
@@ -105,54 +178,57 @@ fn run_with_timeout(mut cmd: Command, stdin_data: &str) -> Result<String, String
 
     if let Some(mut stdin) = child.stdin.take() {
         let data = stdin_data.to_string();
-        let _ = thread::spawn(move || {
+        // Dropping stdin at the end closes it, so a CLI waiting on input sees EOF.
+        thread::spawn(move || {
             let _ = stdin.write_all(data.as_bytes());
         });
     }
 
-    let start = std::time::Instant::now();
+    // Drain both pipes concurrently: a child blocked on a full pipe buffer
+    // would otherwise never exit and always hit the timeout.
+    let stdout = drain(child.stdout.take());
+    let stderr = drain(child.stderr.take());
+
+    let start = Instant::now();
     let timeout = Duration::from_secs(CLI_TIMEOUT_SECS);
-    loop {
+    let status = loop {
         match child.try_wait() {
-            Ok(Some(status)) => {
-                let output = child
-                    .wait_with_output()
-                    .map_err(|e| format!("Failed to read CLI output: {}", e))?;
-                if status.success() {
-                    let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                    return if text.is_empty() {
-                        Err("CLI returned empty output".to_string())
-                    } else {
-                        Ok(text)
-                    };
-                }
-                let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-                return Err(format!("CLI failed: {}", stderr));
-            }
+            Ok(Some(status)) => break status,
+            Ok(None) if start.elapsed() < timeout => thread::sleep(Duration::from_millis(100)),
             Ok(None) => {
-                if start.elapsed() >= timeout {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return Err(format!(
-                        "CLI timed out after {} seconds",
-                        CLI_TIMEOUT_SECS
-                    ));
-                }
-                thread::sleep(Duration::from_millis(100));
+                kill(&mut child);
+                return Err(format!("CLI timed out after {} seconds", CLI_TIMEOUT_SECS));
             }
-            Err(e) => return Err(format!("Failed to poll CLI: {}", e)),
+            Err(e) => {
+                kill(&mut child);
+                return Err(format!("Failed to poll CLI: {}", e));
+            }
         }
+    };
+
+    let stdout = stdout.join().unwrap_or_default();
+    let stderr = stderr.join().unwrap_or_default();
+    if !status.success() {
+        let stderr = String::from_utf8_lossy(&stderr).trim().to_string();
+        return Err(format!("CLI failed: {}", stderr));
+    }
+    let text = String::from_utf8_lossy(&stdout).trim().to_string();
+    if text.is_empty() {
+        Err("CLI returned empty output".to_string())
+    } else {
+        Ok(text)
     }
 }
 
 fn call_gemini_cli(prompt: &str) -> Result<String, String> {
-    // Read prompt from stdin to avoid arg-length limits and shell escaping
-    // issues. `--sandbox` is intentionally omitted — it requires Docker/Podman
-    // which most end-user machines lack, and our prompt construction already
-    // treats the user input as data.
-    let mut cmd = Command::new("gemini");
-    cmd.arg("-p").arg(prompt);
-    run_with_timeout(cmd, "")
+    // The prompt goes over stdin: no argv length limits, nothing in `ps`, and
+    // no multi-line argument through the Windows `gemini.cmd` batch shim.
+    // `-p` is appended to stdin by gemini and keeps it in non-interactive mode.
+    // `--sandbox` is intentionally omitted — it requires Docker/Podman which
+    // most end-user machines lack; the empty working dir limits file tools.
+    let mut cmd = cli_command("gemini")?;
+    cmd.arg("-p").arg("Follow the instructions above.");
+    run_with_timeout(cmd, prompt)
 }
 
 /// Resolve the Claude model to use for translation.
@@ -170,17 +246,18 @@ fn resolve_claude_model() -> String {
 
 fn call_claude_cli(prompt: &str) -> Result<String, String> {
     let model = resolve_claude_model();
-    let mut cmd = Command::new("claude");
+    let mut cmd = cli_command("claude")?;
+    // With `-p` and no positional prompt, claude reads the prompt from stdin.
     cmd.arg("-p")
-        .arg(prompt)
         .arg("--model")
         .arg(&model)
-        // Lock down tool use. Translation must never touch the filesystem,
-        // run shell commands, or fetch URLs — even if the user's message
-        // tries to coax the model into it.
-        .arg("--allowed-tools")
-        .arg("");
-    run_with_timeout(cmd, "")
+        // `--tools ""` removes every built-in tool. (`--allowed-tools` only
+        // pre-approves tools; read-only ones like Read stay usable without it.)
+        .arg("--tools")
+        .arg("")
+        .arg("--strict-mcp-config")
+        .arg("--no-session-persistence");
+    run_with_timeout(cmd, prompt)
 }
 
 fn call_cli(prompt: &str, preferred_cli: &str) -> Result<String, String> {
@@ -324,16 +401,43 @@ mod tests {
         unsafe { std::env::remove_var("AI_TOKEN_MONITOR_CLAUDE_MODEL") };
     }
 
+    #[cfg(unix)]
     #[test]
     fn run_with_timeout_reports_nonzero_exit() {
         let cmd = Command::new("false");
         assert!(run_with_timeout(cmd, "").is_err());
     }
 
+    #[cfg(unix)]
     #[test]
     fn run_with_timeout_captures_stdout_on_success() {
         let mut cmd = Command::new("echo");
         cmd.arg("ok");
         assert_eq!(run_with_timeout(cmd, "").as_deref().ok(), Some("ok"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn run_with_timeout_feeds_prompt_over_stdin() {
+        let cmd = Command::new("cat");
+        assert_eq!(
+            run_with_timeout(cmd, "line one\nline two").as_deref().ok(),
+            Some("line one\nline two")
+        );
+    }
+
+    // Output larger than a pipe buffer (64 KiB) must not stall the child.
+    #[cfg(unix)]
+    #[test]
+    fn run_with_timeout_drains_large_output() {
+        let mut cmd = Command::new("sh");
+        cmd.arg("-c").arg("yes a | head -c 300000");
+        let out = run_with_timeout(cmd, "").expect("large output");
+        assert!(out.len() >= 299_000);
+    }
+
+    #[test]
+    fn unknown_cli_is_never_resolved() {
+        assert!(resolve_cli("sh").is_none());
     }
 }
