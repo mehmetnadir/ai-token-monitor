@@ -1625,14 +1625,42 @@ mod tests {
         let p = get_gemini_pricing("gemini-2.5-pro-preview");
         assert!((p.input - 1.25).abs() < 0.001);
         assert!((p.output - 10.0).abs() < 0.001);
-        assert!((p.cache_read - 0.315).abs() < 0.001);
+        assert!((p.cache_read - 0.125).abs() < 0.001);
     }
 
     #[test]
     fn gemini_25_flash_pricing() {
         let p = get_gemini_pricing("gemini-2.5-flash");
-        assert!((p.input - 0.15).abs() < 0.001);
-        assert!((p.output - 0.60).abs() < 0.001);
+        assert!((p.input - 0.30).abs() < 0.001);
+        assert!((p.output - 2.50).abs() < 0.001);
+    }
+
+    // Current 3.x models must hit their own rows, not the "gemini-3" catch-all:
+    // 3.5 Flash-Lite vs 3.5 Flash, and dotted ids folded to hyphens.
+    #[test]
+    fn gemini_3x_models_resolve_to_own_rows() {
+        let cases = [
+            ("gemini-3.5-flash-lite", 0.30, 2.50),
+            ("gemini-3.5-flash", 1.50, 9.00),
+            ("gemini-3.1-flash-lite-preview", 0.25, 1.50),
+            ("gemini-3.1-pro-preview", 2.00, 12.00),
+        ];
+        for (model, input, output) in cases {
+            let p = get_gemini_pricing(&normalize_model_id(model));
+            assert!((p.input - input).abs() < 0.001, "{model} input: got ${}", p.input);
+            assert!((p.output - output).abs() < 0.001, "{model} output: got ${}", p.output);
+        }
+    }
+
+    // 3.6–3.8 Flash promo pricing ends 2026-12-31; the scheduled row doubles it.
+    #[test]
+    fn gemini_38_flash_price_doubles_in_2027() {
+        let g = config().gemini.as_ref().expect("gemini table");
+        let entry = find_pricing(g, "gemini-3-8-flash");
+        let before = entry.resolve_for("2026-12-31");
+        let after = entry.resolve_for("2027-01-01");
+        assert!((before.input - 0.75).abs() < 0.001 && (before.output - 3.75).abs() < 0.001);
+        assert!((after.input - 1.50).abs() < 0.001 && (after.output - 7.50).abs() < 0.001);
     }
 
     // Gemini 3 Flash and 2.5 Flash-Lite must match their own entries instead of
