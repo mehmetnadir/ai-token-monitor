@@ -248,11 +248,15 @@ impl GeminiProvider {
                 first_date = Some(entry.date.clone());
             }
 
-            let p = pricing::get_gemini_pricing(&entry.model);
-            let cost = (entry.input_tokens as f64 / 1_000_000.0) * p.input
-                + (entry.output_tokens as f64 / 1_000_000.0) * p.output
-                + (entry.cache_read_tokens as f64 / 1_000_000.0) * p.cache_read
-                + (entry.tool_tokens as f64 / 1_000_000.0) * p.input;
+            // The long-context tier is chosen per request from the full prompt
+            // (uncached + cached input).
+            let prompt = entry.input_tokens + entry.cache_read_tokens;
+            let (input_rate, output_rate, cache_rate) =
+                pricing::get_gemini_pricing(&entry.model).tier_for(prompt);
+            let cost = (entry.input_tokens as f64 / 1_000_000.0) * input_rate
+                + (entry.output_tokens as f64 / 1_000_000.0) * output_rate
+                + (entry.cache_read_tokens as f64 / 1_000_000.0) * cache_rate
+                + (entry.tool_tokens as f64 / 1_000_000.0) * input_rate;
 
             let daily = daily_map.entry(entry.date.clone()).or_insert_with(|| DailyUsage {
                 hydrated: false,

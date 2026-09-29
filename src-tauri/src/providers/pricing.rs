@@ -231,6 +231,23 @@ pub struct GeminiPricing {
     pub input: f64,
     pub output: f64,
     pub cache_read: f64,
+    /// 0 means a single flat tier (no threshold).
+    pub high_threshold_tokens: u64,
+    pub high_input: f64,
+    pub high_output: f64,
+    pub high_cache_read: f64,
+}
+
+impl GeminiPricing {
+    /// Flat rates for one request: Pro models bill the whole request at the
+    /// long-context rates once its prompt exceeds the threshold (200k).
+    pub fn tier_for(&self, prompt_tokens: u64) -> (f64, f64, f64) {
+        if self.high_threshold_tokens > 0 && prompt_tokens > self.high_threshold_tokens {
+            (self.high_input, self.high_output, self.high_cache_read)
+        } else {
+            (self.input, self.output, self.cache_read)
+        }
+    }
 }
 
 // --- Loading ---
@@ -605,26 +622,32 @@ pub fn get_opencode_pricing(model: &str) -> OpenCodePricing {
 
 pub fn get_gemini_pricing(model: &str) -> GeminiPricing {
     let cfg = config();
-    // Use dedicated gemini pricing if available
-    if let Some(ref g) = cfg.gemini {
-        let entry = resolved_pricing(g, "gemini", model);
+    // Dedicated gemini table first, then the opencode table's gemini rows.
+    if let Some(table) = cfg.gemini.as_ref().map(|g| (g, "gemini"))
+        .or_else(|| cfg.opencode.as_ref().map(|oc| (oc, "opencode")))
+    {
+        let p = resolved_pricing(table.0, table.1, model);
+        let high = p.high_context;
         return GeminiPricing {
-            input: entry.input,
-            output: entry.output,
-            cache_read: entry.cache_read,
+            input: p.input,
+            output: p.output,
+            cache_read: p.cache_read,
+            high_threshold_tokens: high.map_or(0, |h| h.threshold_tokens),
+            high_input: high.map_or(p.input, |h| h.input),
+            high_output: high.map_or(p.output, |h| h.output),
+            high_cache_read: high.map_or(p.cache_read, |h| h.cached_input),
         };
     }
-    // Fallback: use opencode pricing for gemini models
-    if let Some(ref oc) = cfg.opencode {
-        let entry = resolved_pricing(oc, "opencode", model);
-        return GeminiPricing {
-            input: entry.input,
-            output: entry.output,
-            cache_read: entry.cache_read,
-        };
+    // Last resort defaults (Gemini 2.5 Pro)
+    GeminiPricing {
+        input: 1.25,
+        output: 10.0,
+        cache_read: 0.125,
+        high_threshold_tokens: 200_000,
+        high_input: 2.50,
+        high_output: 15.0,
+        high_cache_read: 0.25,
     }
-    // Last resort defaults (gemini-2.5-pro pricing)
-    GeminiPricing { input: 1.25, output: 10.0, cache_read: 0.315 }
 }
 
 // --- Frontend API (pricing table for tooltip display) ---
@@ -1650,6 +1673,19 @@ mod tests {
             assert!((p.input - input).abs() < 0.001, "{model} input: got ${}", p.input);
             assert!((p.output - output).abs() < 0.001, "{model} output: got ${}", p.output);
         }
+    }
+
+    // Pro models bill the whole request at long-context rates above 200k.
+    #[test]
+    fn gemini_pro_long_context_tier() {
+        let p = get_gemini_pricing(&normalize_model_id("gemini-2.5-pro"));
+        assert_eq!(p.tier_for(200_000), (1.25, 10.0, 0.125));
+        assert_eq!(p.tier_for(200_001), (2.50, 15.0, 0.25));
+        let p = get_gemini_pricing(&normalize_model_id("gemini-3.1-pro-preview"));
+        assert_eq!(p.tier_for(300_000), (4.0, 18.0, 0.4));
+        // Flash has no long-context tier.
+        let p = get_gemini_pricing(&normalize_model_id("gemini-3.5-flash"));
+        assert_eq!(p.tier_for(900_000), (1.5, 9.0, 0.15));
     }
 
     // 3.6–3.8 Flash promo pricing ends 2026-12-31; the scheduled row doubles it.

@@ -217,6 +217,7 @@ export function installMockTauri(): void {
       claude: [{ model: "claude-fable-5", input: "$5", output: "$25", cache_read: "$0.5", cache_write: "$6.25" }],
       codex: [],
       grok: [{ model: "Grok 4.6", input: "$2", output: "$6", cache_read: "$0.5", cache_write: "—" }],
+      gemini: [{ model: "Gemini 3.5 Flash", input: "$1.5", output: "$9", cache_read: "$0.15", cache_write: "—" }],
     }),
     get_oauth_usage: () => null,
     get_oauth_usage_status: () => "no_credentials",
