@@ -33,7 +33,7 @@ const defaultPrefs: UserPreferences = {
   color_mode: "system",
   language: "en",
   config_dirs: ["~/.claude"],
-  gemini_dirs: [],
+  gemini_dirs: ["~/.gemini"],
   codex_dirs: ["~/.codex"],
   gjc_dirs: ["~/.gjc"],
   salary_enabled: false,

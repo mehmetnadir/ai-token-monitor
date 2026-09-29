@@ -21,6 +21,7 @@ struct PricingConfig {
     glm: Option<ProviderConfig>,
     #[serde(default)]
     grok: Option<ProviderConfig>,
+    #[serde(default)]
     gemini: Option<ProviderConfig>,
 }
 
@@ -651,6 +652,7 @@ pub struct PricingTable {
     pub glm: Vec<PricingRow>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub grok: Vec<PricingRow>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub gemini: Vec<PricingRow>,
 }
 
@@ -1631,5 +1633,22 @@ mod tests {
         let p = get_gemini_pricing("gemini-2.5-flash");
         assert!((p.input - 0.15).abs() < 0.001);
         assert!((p.output - 0.60).abs() < 0.001);
+    }
+
+    // Gemini 3 Flash and 2.5 Flash-Lite must match their own entries instead of
+    // falling through the substring chain to "gemini-3" (Pro) / "gemini-2.5-flash".
+    #[test]
+    fn gemini_3_flash_not_billed_as_3_pro() {
+        let p = get_gemini_pricing("gemini-3-flash-preview");
+        assert!((p.input - 0.50).abs() < 0.001, "gemini-3-flash input must be $0.50/MTok, got ${}", p.input);
+        assert!((p.output - 3.00).abs() < 0.001);
+    }
+
+    #[test]
+    fn gemini_25_flash_lite_not_billed_as_flash() {
+        // Normalized ids (dots folded to hyphens) must land on the same entry.
+        let p = get_gemini_pricing(&normalize_model_id("gemini-2.5-flash-lite"));
+        assert!((p.input - 0.10).abs() < 0.001, "gemini-2.5-flash-lite input must be $0.10/MTok, got ${}", p.input);
+        assert!((p.output - 0.40).abs() < 0.001);
     }
 }

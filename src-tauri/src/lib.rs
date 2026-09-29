@@ -403,6 +403,13 @@ pub fn update_tray_title(app_handle: &tauri::AppHandle) {
             (true, 0.0)
         };
 
+        let (gemini_warm, gemini_cost) = if prefs.include_gemini {
+            let s = providers::gemini::get_cached_stats();
+            (s.is_some(), today_cost_of(&s, &today))
+        } else {
+            (true, 0.0)
+        };
+
         let computed = claude_cost
             + codex_cost
             + opencode_cost
@@ -412,7 +419,8 @@ pub fn update_tray_title(app_handle: &tauri::AppHandle) {
             + grok_cost
             + kiro_cost
             + omo_cost
-            + pi_cost;
+            + pi_cost
+            + gemini_cost;
         let warm = claude_warm
             && codex_warm
             && opencode_warm
@@ -422,7 +430,8 @@ pub fn update_tray_title(app_handle: &tauri::AppHandle) {
             && grok_warm
             && kiro_warm
             && omo_warm
-            && pi_warm;
+            && pi_warm
+            && gemini_warm;
 
         let today_cost = if warm {
             // Every enabled provider has parsed — this is the real number.
@@ -479,21 +488,6 @@ fn get_all_watch_dirs() -> Vec<PathBuf> {
     if !codex_seen.contains(&default_canonical) {
         dirs.push(default_codex.join("sessions"));
         dirs.push(default_codex.join("archived_sessions"));
-    }
-
-    // Add Gemini tmp directories from preferences
-    // Always include ~/.gemini/tmp because GeminiProvider reads from there
-    let default_gemini = home.join(".gemini");
-    let mut gemini_seen: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
-    for gemini_dir in &prefs.gemini_dirs {
-        let expanded = expand(gemini_dir);
-        let canonical = expanded.canonicalize().unwrap_or_else(|_| expanded.clone());
-        gemini_seen.insert(canonical);
-        dirs.push(expanded.join("tmp"));
-    }
-    let default_gemini_canonical = default_gemini.canonicalize().unwrap_or_else(|_| default_gemini.clone());
-    if !gemini_seen.contains(&default_gemini_canonical) {
-        dirs.push(default_gemini.join("tmp"));
     }
 
     // Add OpenCode data directory
@@ -581,6 +575,19 @@ fn get_all_watch_dirs() -> Vec<PathBuf> {
         }
     }
 
+    // Gemini CLI: `<home>/tmp` holds every project's chat recordings (plus
+    // shell history and checkpoints). Gated on include_gemini like OmO, since
+    // the CLI rewrites these on every turn and each event re-parses every
+    // provider.
+    if prefs.include_gemini {
+        let gemini = providers::gemini::GeminiProvider::new(prefs.gemini_dirs.clone());
+        for root in gemini.tmp_roots() {
+            if root.exists() {
+                dirs.push(root);
+            }
+        }
+    }
+
     dirs
 }
 
@@ -658,6 +665,7 @@ fn start_file_watcher(app_handle: tauri::AppHandle) {
                     providers::kiro::invalidate_stats_cache();
                     providers::omo::invalidate_stats_cache();
                     providers::pi::invalidate_stats_cache();
+                    providers::gemini::invalidate_stats_cache();
                     // Re-parse in background, then notify the frontend. Emitting only
                     // after the parse completes means the frontend's get_*_stats calls
                     // hit the warm cache instead of racing this thread and parsing the
@@ -694,6 +702,9 @@ fn start_file_watcher(app_handle: tauri::AppHandle) {
                         if prefs.include_pi {
                             let _ = providers::pi::PiProvider::new().fetch_stats();
                         }
+                        if prefs.include_gemini {
+                            let _ = providers::gemini::GeminiProvider::new(prefs.gemini_dirs.clone()).fetch_stats();
+                        }
                         update_tray_title(&app_for_refresh);
                         let _ = app_for_refresh.emit("stats-updated", ());
                     });
@@ -722,6 +733,7 @@ fn start_file_watcher(app_handle: tauri::AppHandle) {
                         providers::kiro::invalidate_stats_cache();
                         providers::omo::invalidate_stats_cache();
                         providers::pi::invalidate_stats_cache();
+                        providers::gemini::invalidate_stats_cache();
                         let _ = app_handle.emit("stats-updated", ());
                     }
                     update_tray_title(&app_handle);
@@ -1180,7 +1192,6 @@ pub fn run() {
             commands::validate_codex_dir,
             commands::get_gemini_stats,
             commands::is_gemini_available,
-            commands::detect_gemini_dirs,
             get_home_dir,
             set_dialog_open,
             hide_window,
