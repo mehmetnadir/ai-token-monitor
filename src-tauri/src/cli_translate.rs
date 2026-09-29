@@ -233,8 +233,32 @@ fn call_gemini_cli(prompt: &str) -> Result<String, String> {
     // `--sandbox` is intentionally omitted — it requires Docker/Podman which
     // most end-user machines lack; the empty working dir limits file tools.
     let mut cmd = cli_command("gemini")?;
-    cmd.arg("-p").arg("Follow the instructions above.");
+    // Headless gemini still allows read-only tools (read_file, web_fetch,
+    // google_web_search, ...) and the user's MCP tools, so a chat message could
+    // make the translator's machine fetch an attacker's URL. A user-tier deny-all
+    // policy outranks every default allow rule and removes the tools from the
+    // model entirely (geminicli.com/docs/reference/policy-engine).
+    let policy = deny_all_policy_file()?;
+    // Gemini CLI 0.61+ refuses to run headless in an untrusted folder. The
+    // working dir is our own empty temp dir, so trusting it loads nothing.
+    // (An env var rather than `--skip-trust`: older CLIs ignore it.)
+    cmd.env("GEMINI_CLI_TRUST_WORKSPACE", "true");
+    cmd.arg("--policy")
+        .arg(&policy)
+        .arg("-p")
+        .arg("Follow the instructions above.");
     run_with_timeout(cmd, prompt)
+}
+
+const DENY_ALL_TOOLS_POLICY: &str = "[[rule]]\ntoolName = \"*\"\ndecision = \"deny\"\npriority = 999\n";
+
+/// Writes the deny-all policy next to (not inside) the empty working dir, so
+/// the working dir stays empty.
+fn deny_all_policy_file() -> Result<std::path::PathBuf, String> {
+    let path = std::env::temp_dir().join("ai-token-monitor-translate-policy.toml");
+    std::fs::write(&path, DENY_ALL_TOOLS_POLICY)
+        .map_err(|e| format!("Failed to write gemini policy: {}", e))?;
+    Ok(path)
 }
 
 /// Resolve the Claude model to use for translation.
@@ -353,6 +377,14 @@ Return ONLY the translated reply, with no explanations, quotes, or markers.\n\n\
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn deny_all_policy_denies_every_tool() {
+        let path = deny_all_policy_file().expect("policy written");
+        let text = std::fs::read_to_string(path).expect("policy readable");
+        assert!(text.contains("toolName = \"*\""));
+        assert!(text.contains("decision = \"deny\""));
+    }
 
     #[test]
     fn sanitize_neutralizes_fence_markers() {
