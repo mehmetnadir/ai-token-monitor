@@ -594,10 +594,10 @@ pub async fn translate_reply(
 
     // Route to CLI if translation_provider is "cli"
     if prefs.translation_provider.as_deref() == Some("cli") {
-        let preferred = prefs.preferred_cli.unwrap_or_else(|| "gemini".to_string());
+        let preferred = prefs.preferred_cli;
         // CLI calls block for up to the CLI timeout; keep them off the async runtime.
         return tauri::async_runtime::spawn_blocking(move || {
-            crate::cli_translate::cli_translate_reply(&text, &original_message, &preferred)
+            crate::cli_translate::cli_translate_reply(&text, &original_message, preferred.as_deref())
         })
         .await
         .map_err(|e| format!("CLI translation task failed: {}", e))?;
@@ -630,13 +630,13 @@ pub async fn translate_text(
 
     // Route to CLI if translation_provider is "cli"
     if prefs.translation_provider.as_deref() == Some("cli") {
-        let preferred = prefs.preferred_cli.unwrap_or_else(|| "gemini".to_string());
+        let preferred = prefs.preferred_cli;
         return tauri::async_runtime::spawn_blocking(move || {
             crate::cli_translate::cli_translate_text(
                 &text,
                 &target_language,
                 source_language.as_deref(),
-                &preferred,
+                preferred.as_deref(),
             )
         })
         .await
