@@ -278,6 +278,7 @@
   "chat.description": "Sıralamadaki diğer geliştiricilerle sohbet edin. Katılmak için giriş yapın ve sıralamayı etkinleştirin.",
   "chat.placeholder": "Mesaj yaz...",
   "chat.send": "Gönder",
+  "chat.securityWarning": "Mesajlar herkese açıktır. API anahtarı, parola veya hassas kod paylaşmayın.",
   "chat.loading": "Mesajlar yükleniyor...",
   "chat.empty": "Henüz mesaj yok. Sohbeti başlatın!",
   "chat.loadMore": "Eski mesajları yükle",
